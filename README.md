@@ -275,20 +275,3 @@ dependencies:
   intl: latest
 ```
 
-## 🐛 Known Issues
-
-- Voice recognition requires microphone permissions
-- iOS may require additional permissions in Info.plist
-- Firebase configuration required for authentication
-
-## 🚧 Roadmap
-
-- [ ] Push notifications for scheduled tasks
-- [ ] Task categories/tags
-- [ ] Cloud sync for tasks
-- [ ] Recurring tasks
-- [ ] Task attachments
-- [ ] Collaboration features
-- [ ] Analytics dashboard
-- [ ] Export tasks to calendar apps
-
