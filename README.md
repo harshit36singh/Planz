@@ -6,6 +6,10 @@ A modern, feature-rich task management Flutter application with voice input, sch
 ![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)
 ![Dart](https://img.shields.io/badge/Dart-0175C2?style=for-the-badge&logo=dart&logoColor=white)
 
+## 📸 App Overview 
+
+![Planz App Screenshot](lib/screenshot/planz.png)
+
 ## 📱 Features
 
 ### Core Functionality
