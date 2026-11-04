@@ -1,9 +1,8 @@
 # Planz 📋
 
-A modern, feature-rich task management Flutter application with voice input, scheduling, and Firebase authentication.
+A modern, feature-rich task management Flutter application with voice input and scheduling. Fully offline: all data stays on your device.
 
 ![Flutter](https://img.shields.io/badge/Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)
-![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)
 ![Dart](https://img.shields.io/badge/Dart-0175C2?style=for-the-badge&logo=dart&logoColor=white)
 
 ## 📸 App Overview 
@@ -13,7 +12,7 @@ A modern, feature-rich task management Flutter application with voice input, sch
 ## 📱 Features
 
 ### Core Functionality
-- ✅ **Task Management** - Create, edit, and delete tasks with descriptions
+- ✅ **Task Management** - Create, edit, complete, and delete tasks with descriptions
 - 🎯 **Priority System** - Four priority levels (Low, Medium, High, Urgent) with color coding
 - 📅 **Task Scheduling** - Schedule tasks with specific dates and times
 - 🗑️ **Soft Delete** - Deleted tasks can be restored from trash
@@ -29,9 +28,9 @@ A modern, feature-rich task management Flutter application with voice input, sch
 - 💾 **Local Storage** - Tasks persist locally using Hive database
 
 ### User Experience
-- 🔐 **Firebase Authentication** - Secure login and registration
-- 👤 **User Profiles** - Personal profile management
-- 🌙 **Dark Mode Ready** - Theme customization options
+- 🔒 **Private by Default** - No account needed; nothing leaves the device
+- 👤 **Profile** - Your name, task stats, and app reset
+- 🌙 **Dark Mode** - Persisted light/dark theme
 - 📳 **Haptic Feedback** - Tactile responses for user interactions
 - 🎭 **Onboarding** - Beautiful onboarding screens for new users
 
@@ -46,9 +45,7 @@ A modern, feature-rich task management Flutter application with voice input, sch
 - **smooth_page_indicator** - Page indicator for onboarding
 
 ### Backend & Database
-- **Firebase Auth** - User authentication
-- **Cloud Firestore** - User data storage
-- **Hive** - Local task storage and caching
+- **Hive** - Local storage for tasks (`todo` box), profile (`user_data`), and settings (`settings`)
 
 ### Voice & AI
 - **speech_to_text** - Voice recognition
@@ -64,14 +61,13 @@ A modern, feature-rich task management Flutter application with voice input, sch
 ```
 planz/
 ├── lib/
-│   ├── auth/
-│   │   ├── login.dart              # Login screen
-│   │   └── register.dart           # Registration screen
+│   ├── auth/                       # Firebase login/register (not used in the offline flow)
 │   ├── LandingPages/
 │   │   ├── landing.dart            # Onboarding page 1
 │   │   ├── landing2.dart           # Onboarding page 2
 │   │   ├── landing3.dart           # Onboarding page 3
-│   │   └── landingmain.dart        # Onboarding controller
+│   │   ├── landingmain.dart        # Onboarding controller
+│   │   └── OnBoardingPage.dart     # Name entry (first run)
 │   ├── pages/
 │   │   ├── Home.dart               # Main task list view
 │   │   ├── List.dart               # Filtered tasks view
@@ -83,12 +79,12 @@ planz/
 │   │   └── deleted_pages.dart      # Trash/deleted tasks
 │   ├── providers/
 │   │   ├── task_notifier.dart      # Task state management
-│   │   └── task_provider.dart      # Riverpod providers
+│   │   ├── task_provider.dart      # Riverpod providers
+│   │   ├── theme_provider.dart     # Light/dark theme
+│   │   └── user_provider.dart      # User name / onboarding state
 │   ├── Widgets/
 │   │   ├── bottom_task_sheet.dart  # Task creation bottom sheet
-│   │   ├── task_card.dart          # Swipeable task card
-│   │   ├── customtextfield.dart    # Reusable text fields
-│   │   └── color_wheel_picker.dart # Color picker widget
+│   │   └── customtextfield.dart    # Reusable text fields
 │   ├── router.dart                 # App routing
 │   └── main.dart                   # App entry point
 ├── assets/
@@ -103,7 +99,6 @@ planz/
 
 - Flutter SDK (latest stable version)
 - Dart SDK (comes with Flutter)
-- Firebase project setup
 - Android Studio / VS Code
 - iOS development: Xcode (macOS only)
 
@@ -120,33 +115,20 @@ cd Planz
 flutter pub get
 ```
 
-3. **Firebase Setup**
-
-Create a Firebase project at [Firebase Console](https://console.firebase.google.com/)
-
-Enable the following services:
-- Authentication (Email/Password)
-- Cloud Firestore
-
-Download and add configuration files:
-- `google-services.json` → `android/app/`
-- `GoogleService-Info.plist` → `ios/Runner/`
-
-4. **Run the app**
+3. **Run the app**
 ```bash
 flutter run
 ```
 
 ## 📱 App Flow
 
-### 1. Onboarding
-- Three-page onboarding with smooth animations
-- Introduction to app features
+### 1. Onboarding (first launch only)
+- Three intro pages with smooth animations
+- Enter your name (or skip). It is stored locally with Hive
+- Later launches open straight to Home
 
-### 2. Authentication
-- Email/password registration
-- Secure login with Firebase Auth
-- User data stored in Firestore
+### 2. No Account Needed
+- Everything is stored on the device; Profile → Reset App erases it
 
 ### 3. Task Creation
 Three methods to create tasks:
@@ -207,16 +189,17 @@ Example commands:
 
 ### Timeline View
 24-hour schedule visualization:
+- "All day" row for tasks with a date but no time
 - Hourly slots from 12:00 AM to 11:00 PM
 - Current hour highlighted
 - Multiple tasks per hour supported
-- Auto-scroll to current hour
+- Auto-scroll to the current hour (or the first task on other days)
 
 ### Soft Delete System
 - Deleted tasks stored with timestamp
-- "Today's deleted" view in trash
-- Restore with undo option
-- Permanent delete from trash
+- Swipe to delete, with undo
+- Trash (bin icon on Home) lists all deleted tasks
+- Restore, permanently delete, or empty the trash
 
 ## 🔧 Configuration
 
@@ -236,12 +219,8 @@ extension TaskPriorityExtension on TaskPriority {
 ```
 
 ### Theme
-Main theme in `lib/main.dart`:
-```dart
-theme: ThemeData(
-  textTheme: GoogleFonts.jostTextTheme()
-),
-```
+Light and dark themes live in `lib/providers/theme_provider.dart` (`AppTheme`);
+the dark mode switch is on the Profile page.
 
 ## 📦 Dependencies
 
@@ -250,13 +229,8 @@ theme: ThemeData(
 dependencies:
   flutter:
     sdk: flutter
-  flutter_riverpod: ^2.0.0
-  
-  # Firebase
-  firebase_core: latest
-  firebase_auth: latest
-  cloud_firestore: latest
-  
+  flutter_riverpod: ^3.0.0
+
   # Storage
   hive: latest
   hive_flutter: latest
