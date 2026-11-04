@@ -1,15 +1,35 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter/services.dart';
 import 'package:planz/Widgets/bottom_task_sheet.dart';
 import 'package:planz/pages/Home.dart';
 import 'package:planz/pages/List.dart';
 import 'package:planz/pages/Profile.dart';
 import 'package:planz/pages/Schedule.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:planz/providers/task_notifier.dart';
 import 'package:planz/providers/task_provider.dart';
+import 'package:planz/providers/theme_provider.dart';
+
+/// Opens the task bottom sheet. Pass [task] to edit an existing task.
+Future<Map<String, dynamic>?> showTaskSheet(
+  BuildContext context, {
+  Task? task,
+}) {
+  return showModalBottomSheet<Map<String, dynamic>>(
+    context: context,
+    backgroundColor: Colors.black.withValues(alpha: 0.3),
+    isScrollControlled: true,
+    builder: (context) => Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: bottom_sheet(initialTask: task),
+    ),
+  );
+}
+
 class PageNave extends ConsumerStatefulWidget {
   const PageNave({super.key});
 
@@ -18,62 +38,45 @@ class PageNave extends ConsumerStatefulWidget {
 }
 
 class _PageNaveState extends ConsumerState<PageNave> {
-  // Updated method to handle priority
-  void onTaskCreated(
-    String task,
-    String desc,
-    TaskPriority priority,
-    DateTime? scheduledate,
-    TimeOfDay? scheduletime,
-  ) {
-    if (task.isNotEmpty) {
-      ref
-          .read(task_provider.notifier)
-          .addTask(
-            task,
-            desc,
-            priority,
-            scheduledate: scheduledate,
-            scheduletime: scheduletime,
-          ); // Now includes priority
-      setState(() {
-        _selectedIndex = scheduledate != null
-            ? 1
-            : 2; // optional: switch to Lists tab after creation
-      });
-    }
-  }
-
   int _selectedIndex = 0;
 
-  void _OnItemTapped(int index) {
+  /// Date the Schedule tab should open on (set after scheduling a task).
+  DateTime _scheduleDate = DateTime.now();
+
+  void _onItemTapped(int index) {
     HapticFeedback.lightImpact();
-    setState(() => _selectedIndex = index);
+    setState(() {
+      // Reopening the Plan tab from the nav bar starts on today again.
+      if (index == 1 && _selectedIndex != 1) _scheduleDate = DateTime.now();
+      _selectedIndex = index;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final List<Widget> list = [
-      HomeScreen(),
-      SChedulePage(),
-      ListPage(),
-      ProfilePage(),
+    final pages = [
+      const HomeScreen(),
+      SChedulePage(key: ValueKey(_scheduleDate), initialDate: _scheduleDate),
+      const ListPage(),
+      const ProfilePage(),
     ];
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
       extendBody: true,
-      bottomNavigationBar: Container(
-        margin: const EdgeInsets.all(16),
+      bottomNavigationBar: SafeArea(
         child: Container(
+          margin: const EdgeInsets.all(16),
           height: 64,
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppTheme.getCardColor(context),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.grey.shade200, width: 1),
+            border: Border.all(
+              color: AppTheme.getBorderColor(context),
+              width: 1,
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.04),
+                color: Colors.black.withValues(alpha: 0.04),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -91,20 +94,22 @@ class _PageNaveState extends ConsumerState<PageNave> {
           ),
         ),
       ),
-      body: list[_selectedIndex],
+      body: pages[_selectedIndex],
     );
   }
 
   Widget _buildNavItem(IconData icon, String label, int index) {
-    bool isSelected = _selectedIndex == index;
+    final isSelected = _selectedIndex == index;
+    final accent = AppTheme.getTextColor(context);
+    final onAccent = AppTheme.getCardColor(context);
 
     return GestureDetector(
-      onTap: () => _OnItemTapped(index),
+      onTap: () => _onItemTapped(index),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.black87 : Colors.transparent,
+          color: isSelected ? accent : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
@@ -113,7 +118,9 @@ class _PageNaveState extends ConsumerState<PageNave> {
             Icon(
               icon,
               size: 20,
-              color: isSelected ? Colors.white : Colors.grey.shade600,
+              color: isSelected
+                  ? onAccent
+                  : AppTheme.getSecondaryTextColor(context),
             ),
             if (isSelected) ...[
               const SizedBox(width: 8),
@@ -122,7 +129,7 @@ class _PageNaveState extends ConsumerState<PageNave> {
                 style: GoogleFonts.inter(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: Colors.white,
+                  color: onAccent,
                 ),
               ),
             ],
@@ -132,114 +139,67 @@ class _PageNaveState extends ConsumerState<PageNave> {
     );
   }
 
-  Widget _buildAddButton() {
-  return GestureDetector(
-    onTap: () async {
-      HapticFeedback.mediumImpact();
-      final result = await showModalBottomSheet<Map<String, dynamic>>(
-        context: context,
-        backgroundColor: Colors.black.withOpacity(0.3),
-        isScrollControlled: true,
-        builder: (context) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
+  Future<void> _createTask() async {
+    HapticFeedback.mediumImpact();
+    final result = await showTaskSheet(context);
+    if (result == null || !mounted) return;
+
+    final String task = result["task"] ?? "";
+    if (task.isEmpty) return;
+    final date = result["date"] as DateTime?;
+
+    ref
+        .read(taskProvider.notifier)
+        .addTask(
+          task,
+          result["desc"] ?? "",
+          result["priority"] ?? TaskPriority.medium,
+          scheduledate: date,
+          scheduletime: result["time"] as TimeOfDay?,
+        );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          date != null
+              ? "Task scheduled for ${date.day}/${date.month}/${date.year}"
+              : "Task created successfully",
+          style: GoogleFonts.inter(
+            fontWeight: FontWeight.w500,
+            color: Colors.white,
           ),
-          child: bottom_sheet(),
         ),
-      );
-
-      if (result != null) {
-        final task = result["task"] ?? "";
-        final desc = result["desc"] ?? "";
-        final priority = result["priority"] ?? TaskPriority.medium;
-        final date = result["date"] as DateTime?;
-        final time = result["time"] as TimeOfDay?;
-
-        // DEBUG: Print what we received
-        print("DEBUG: Received from bottom sheet:");
-        print("Task: $task");
-        print("Desc: $desc");
-        print("Priority: $priority");
-        print("Date: $date");
-        print("Time: $time");
-
-        // Only create task if title is provided
-        if (task.isNotEmpty) {
-          // FIXED - Always pass scheduling parameters
-          ref.read(task_provider.notifier).addTask(
-            task,
-            desc,
-            priority,
-            scheduledate: date, // Pass the date
-            scheduletime: time, // Pass the time
-          );
-
-          // DEBUG: Check if task was added
-          final allTasks = ref.read(task_provider);
-          print("DEBUG: Total tasks after adding: ${allTasks.length}");
-          if (allTasks.isNotEmpty) {
-            final lastTask = allTasks.last;
-            print("DEBUG: Last task - Title: ${lastTask.task}");
-            print("DEBUG: Last task - Schedule Date: ${lastTask.scheduledate}");
-            print("DEBUG: Last task - Schedule Time: ${lastTask.scheduletime}");
-            print("DEBUG: Last task - Is Scheduled: ${lastTask.isscheduled}");
-          }
-
-          // Show success message
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  Container(
-                    width: 4,
-                    height: 20,
-                    decoration: BoxDecoration(
-                      color: Colors.amber,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      date != null
-                          ? "Task scheduled for ${date.day}/${date.month}/${date.year}"
-                          : "Task created successfully",
-                      style: GoogleFonts.inter(
-                        fontWeight: FontWeight.w500,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              backgroundColor: Colors.black87,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              margin: const EdgeInsets.all(16),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-
-          // Navigate to appropriate tab
-          setState(() {
-            _selectedIndex = date != null ? 1 : 0; // Schedule tab if date, else Home
-          });
-        }
-      } else {
-        print("DEBUG: Result from bottom sheet was null");
-      }
-    },
-    child: Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: Colors.black87,
-        borderRadius: BorderRadius.circular(12),
+        backgroundColor: Colors.black87,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 2),
       ),
-      child: const Icon(Icons.add, color: Colors.white, size: 20),
-    ),
-  );
-}
+    );
+
+    // Scheduled tasks: jump to the Plan tab on that day. Otherwise Home.
+    setState(() {
+      if (date != null) {
+        _scheduleDate = date;
+        _selectedIndex = 1;
+      } else {
+        _selectedIndex = 0;
+      }
+    });
+  }
+
+  Widget _buildAddButton() {
+    return GestureDetector(
+      onTap: _createTask,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: AppTheme.getTextColor(context),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(Icons.add, color: AppTheme.getCardColor(context), size: 20),
+      ),
+    );
+  }
 }

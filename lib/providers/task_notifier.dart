@@ -1,6 +1,6 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_riverpod/legacy.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/legacy.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 enum TaskPriority { low, medium, high, urgent }
 
@@ -31,8 +31,6 @@ extension TaskPriorityExtension on TaskPriority {
     }
   }
 
-  String get name => label;
-
   IconData get icon {
     switch (this) {
       case TaskPriority.low:
@@ -47,7 +45,14 @@ extension TaskPriorityExtension on TaskPriority {
   }
 }
 
+int _idCounter = 0;
+String _generateId() =>
+    '${DateTime.now().microsecondsSinceEpoch}_${_idCounter++}';
+
 class Task {
+  /// Stable identifier. All notifier operations use this instead of list
+  /// indexes, which go stale as soon as the list changes.
+  final String id;
   final String task;
   final String desc;
   final DateTime createdAt;
@@ -58,19 +63,20 @@ class Task {
   final bool isCompleted;
 
   Task({
+    String? id,
     required this.task,
     required this.desc,
     required this.createdAt,
     this.deletedAt,
-    this.priority = TaskPriority.low,
+    this.priority = TaskPriority.medium,
     this.scheduletime,
     this.scheduledate,
     this.isCompleted = false,
-  });
+  }) : id = id ?? _generateId();
 
-  // Updated toMap method
   Map<String, dynamic> toMap() {
     return {
+      'id': id,
       'task': task,
       'desc': desc,
       'createdAt': createdAt.toIso8601String(),
@@ -83,7 +89,6 @@ class Task {
     };
   }
 
-  // Updated fromMap method
   factory Task.fromMap(Map<String, dynamic> map) {
     TimeOfDay? scheduletime;
     if (map['scheduletimehour'] != null && map['scheduletimeminute'] != null) {
@@ -92,19 +97,24 @@ class Task {
         minute: map['scheduletimeminute'],
       );
     }
+    final priorityIndex = map['priority'];
     return Task(
+      id: map['id'] as String?,
       task: map['task'] ?? '',
       desc: map['desc'] ?? '',
       createdAt: map['createdAt'] is String
           ? DateTime.parse(map['createdAt'])
           : DateTime.now(),
-      deletedAt: map['deletedAt'] != null && map['deletedAt'] is String
+      deletedAt: map['deletedAt'] is String
           ? DateTime.parse(map['deletedAt'])
           : null,
-      priority: map['priority'] != null
-          ? TaskPriority.values[map['priority']]
-          : TaskPriority.low,
-      scheduledate: map['scheduledate'] != null && map['scheduledate'] is String
+      priority:
+          priorityIndex is int &&
+              priorityIndex >= 0 &&
+              priorityIndex < TaskPriority.values.length
+          ? TaskPriority.values[priorityIndex]
+          : TaskPriority.medium,
+      scheduledate: map['scheduledate'] is String
           ? DateTime.parse(map['scheduledate'])
           : null,
       scheduletime: scheduletime,
@@ -112,62 +122,103 @@ class Task {
     );
   }
 
-  // Updated copyWith method
+  /// The `clear*` flags exist because `null` can't be passed through `??`
+  /// to remove a value (e.g. restoring a task must reset `deletedAt`).
   Task copyWith({
     String? task,
     String? desc,
-    DateTime? createdAt,
     DateTime? deletedAt,
     TaskPriority? priority,
     DateTime? scheduledate,
     TimeOfDay? scheduletime,
     bool? isCompleted,
+    bool clearDeletedAt = false,
+    bool clearScheduledate = false,
+    bool clearScheduletime = false,
   }) {
     return Task(
+      id: id,
       task: task ?? this.task,
       desc: desc ?? this.desc,
-      createdAt: createdAt ?? this.createdAt,
-      deletedAt: deletedAt ?? this.deletedAt,
+      createdAt: createdAt,
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
       priority: priority ?? this.priority,
-      scheduledate: scheduledate ?? this.scheduledate,
-      scheduletime: scheduletime ?? this.scheduletime,
+      scheduledate: clearScheduledate
+          ? null
+          : (scheduledate ?? this.scheduledate),
+      scheduletime: clearScheduletime
+          ? null
+          : (scheduletime ?? this.scheduletime),
       isCompleted: isCompleted ?? this.isCompleted,
     );
   }
 
+  bool get isDeleted => deletedAt != null;
+
   bool get isscheduled => scheduledate != null;
 
-  bool get isScheduledForToday {
+  bool get isScheduledForToday => isScheduledForDate(DateTime.now());
+
+  bool isScheduledForDate(DateTime date) {
     if (scheduledate == null) return false;
-    final today = DateTime.now();
-    return scheduledate!.year == today.year &&
-        scheduledate!.month == today.month &&
-        scheduledate!.day == today.day;
+    return scheduledate!.year == date.year &&
+        scheduledate!.month == date.month &&
+        scheduledate!.day == date.day;
   }
-bool isScheduledForDate(DateTime date) {
-  if (scheduledate == null) return false;
-  
-  // Strip time and timezone info, compare only date components
-  final taskYear = scheduledate!.year;
-  final taskMonth = scheduledate!.month; 
-  final taskDay = scheduledate!.day;
-  
-  final searchYear = date.year;
-  final searchMonth = date.month;
-  final searchDay = date.day;
-  
-  print("DEBUG: Task date parts: $taskYear-$taskMonth-$taskDay");
-  print("DEBUG: Search date parts: $searchYear-$searchMonth-$searchDay");
-  
-  return taskYear == searchYear && taskMonth == searchMonth && taskDay == searchDay;
-}
+
+  /// The moment the task is due: its scheduled date plus time (end of day
+  /// when no time is set). Null for unscheduled tasks.
+  DateTime? get dueAt {
+    if (scheduledate == null) return null;
+    final d = scheduledate!;
+    if (scheduletime == null) return DateTime(d.year, d.month, d.day, 23, 59);
+    return DateTime(
+      d.year,
+      d.month,
+      d.day,
+      scheduletime!.hour,
+      scheduletime!.minute,
+    );
+  }
+
+  bool isOverdue([DateTime? now]) {
+    final due = dueAt;
+    if (due == null || isCompleted || isDeleted) return false;
+    return due.isBefore(now ?? DateTime.now());
+  }
 }
 
 class TaskNotifier extends StateNotifier<List<Task>> {
-  TaskNotifier() : super([]);
+  static const String boxName = 'todo';
+  static const String _tasksKey = 'tasks';
 
-  // Updated addTask method with priority
-  void addTask(
+  final Box? _box;
+
+  /// Pass a Hive box to persist tasks; with no box the notifier is in-memory
+  /// only (used by tests).
+  TaskNotifier([this._box]) : super(_load(_box));
+
+  static List<Task> _load(Box? box) {
+    if (box == null) return [];
+    final raw = box.get(_tasksKey);
+    if (raw is! List) return [];
+    return raw
+        .whereType<Map>()
+        .map((m) => Task.fromMap(Map<String, dynamic>.from(m)))
+        .toList();
+  }
+
+  @override
+  set state(List<Task> value) {
+    super.state = value;
+    _box?.put(_tasksKey, value.map((t) => t.toMap()).toList());
+  }
+
+  void _update(String id, Task Function(Task) change) {
+    state = [for (final t in state) t.id == id ? change(t) : t];
+  }
+
+  Task addTask(
     String taskTitle,
     String taskDesc,
     TaskPriority priority, {
@@ -183,101 +234,35 @@ class TaskNotifier extends StateNotifier<List<Task>> {
       scheduletime: scheduletime,
     );
     state = [...state, newTask];
+    return newTask;
   }
 
-  void toggleTaskCompletion(int index) {
-    if (index >= 0 && index < state.length) {
-      final updatedTask = state[index].copyWith(
-        isCompleted: !state[index].isCompleted,
-      );
-      final newState = List<Task>.from(state);
-      newState[index] = updatedTask;
-      state = newState;
-    }
+  /// Replaces the task with the same id.
+  void updateTask(Task updated) => _update(updated.id, (_) => updated);
+
+  void toggleTaskCompletion(String id) =>
+      _update(id, (t) => t.copyWith(isCompleted: !t.isCompleted));
+
+  /// Soft delete: moves the task to the trash.
+  void deleteTask(String id) =>
+      _update(id, (t) => t.copyWith(deletedAt: DateTime.now()));
+
+  void restoreTask(String id) =>
+      _update(id, (t) => t.copyWith(clearDeletedAt: true));
+
+  void permanentlyDeleteTask(String id) {
+    state = state.where((t) => t.id != id).toList();
   }
 
-  // Rest of your existing methods remain the same...
-  void removeTask(int index) {
-    if (index >= 0 && index < state.length) {
-      final updatedTask = state[index].copyWith(deletedAt: DateTime.now());
-      final newState = List<Task>.from(state);
-      newState[index] = updatedTask;
-      state = newState;
-    }
+  /// Permanently removes every task currently in the trash.
+  void emptyTrash() {
+    state = state.where((t) => !t.isDeleted).toList();
   }
 
-  void deleteTask(int index) {
-    removeTask(index);
-  }
+  void updateTaskPriority(String id, TaskPriority newPriority) =>
+      _update(id, (t) => t.copyWith(priority: newPriority));
 
-  void restoreTask(int index) {
-    if (index >= 0 && index < state.length) {
-      final updatedTask = state[index].copyWith(deletedAt: null);
-      final newState = List<Task>.from(state);
-      newState[index] = updatedTask;
-      state = newState;
-    }
-  }
-
-  void permanentlyDeleteTask(int index) {
-    if (index >= 0 && index < state.length) {
-      state = [...state.sublist(0, index), ...state.sublist(index + 1)];
-    }
-  }
-
-  // New method to update task priority
-  void updateTaskPriority(int index, TaskPriority newPriority) {
-    if (index >= 0 && index < state.length) {
-      final updatedTask = state[index].copyWith(priority: newPriority);
-      final newState = List<Task>.from(state);
-      newState[index] = updatedTask;
-      state = newState;
-    }
-  }
-
-  // Existing getters
-  List<Task> get activeTasks {
-    return state.where((task) => task.deletedAt == null).toList();
-  }
-
-  List<Task> get deletedTasks {
-    return state.where((task) => task.deletedAt != null).toList();
-  }
-
-  List<Task> get todaysDeletedTasks {
-    final today = DateTime.now();
-    return deletedTasks.where((task) {
-      if (task.deletedAt == null) return false;
-      final deletedDate = task.deletedAt!;
-      return deletedDate.year == today.year &&
-          deletedDate.month == today.month &&
-          deletedDate.day == today.day;
-    }).toList();
-  }
-
-  // New getter to get tasks by priority
-  List<Task> getTasksByPriority(TaskPriority priority) {
-    return activeTasks.where((task) => task.priority == priority).toList();
-  }
-
-  List<Task> get scheduledTasks {
-    return activeTasks.where((task) => task.isscheduled).toList();
-  }
-
-  List<Task> get todaysScheduledTasks {
-    return activeTasks.where((task) => task.isScheduledForToday).toList();
-  }
-
-  List<Task> getTasksForDate(DateTime date) {
-    return activeTasks.where((task) => task.isScheduledForDate(date)).toList();
-  }
-
-  // New getter to get tasks sorted by priority
-  List<Task> get activeTasksSortedByPriority {
-    final tasks = List<Task>.from(activeTasks);
-    tasks.sort(
-      (a, b) => b.priority.index.compareTo(a.priority.index),
-    ); // Urgent first
-    return tasks;
+  void clearAll() {
+    state = [];
   }
 }

@@ -52,7 +52,7 @@ class _LoginPageState extends State<LoginPage> {
 
         Navigator.pushNamed(context, Approuter.home);
       }
-    } on FirebaseException catch (e) {
+    } on FirebaseException {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Center(

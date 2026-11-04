@@ -82,7 +82,7 @@ class LandingPage3 extends StatelessWidget {
                 width: width * 0.85, // 85% of screen width
                 child: ElevatedButton(
                   onPressed: () {
-                    Navigator.pushNamed(context, Approuter.login);
+                    Navigator.pushReplacementNamed(context, Approuter.onboarding);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF6C63FF),

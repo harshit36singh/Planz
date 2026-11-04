@@ -5,40 +5,56 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:planz/providers/task_provider.dart';
 import 'package:planz/providers/task_notifier.dart';
+import 'package:planz/providers/theme_provider.dart';
 
 class SChedulePage extends ConsumerStatefulWidget {
-  const SChedulePage({super.key});
+  /// Day shown when the page opens (defaults to today).
+  final DateTime? initialDate;
+
+  const SChedulePage({super.key, this.initialDate});
 
   @override
   ConsumerState<SChedulePage> createState() => _SChedulePageState();
 }
 
 class _SChedulePageState extends ConsumerState<SChedulePage> {
-  DateTime? selectedDate = DateTime.now();
-  DateTime focusedDate = DateTime.now();
+  late DateTime? selectedDate = widget.initialDate ?? DateTime.now();
+  late DateTime focusedDate = widget.initialDate ?? DateTime.now();
   final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToCurrentHour();
+      _scrollToRelevantHour();
     });
   }
 
-  void _scrollToCurrentHour() {
-    if (selectedDate != null && isSameDay(selectedDate, DateTime.now())) {
-      final now = DateTime.now();
-      final hourIndex = now.hour;
-      final offset = hourIndex * 80.0; // Adjusted for new height
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          offset,
-          duration: const Duration(milliseconds: 500),
-          curve: Curves.easeOut,
-        );
-      }
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// Scrolls the timeline to the current hour (today) or to the first timed
+  /// task (other days). Row heights vary, so this is an approximation.
+  void _scrollToRelevantHour() {
+    if (selectedDate == null || !_scrollController.hasClients) return;
+    int? hour;
+    if (isSameDay(selectedDate, DateTime.now())) {
+      hour = DateTime.now().hour;
+    } else {
+      final timed = ref
+          .read(tasksForDateProvider(selectedDate!))
+          .where((t) => t.scheduletime != null);
+      if (timed.isNotEmpty) hour = timed.first.scheduletime!.hour;
     }
+    final offset = hour == null ? 0.0 : (hour + 1) * 85.0;
+    _scrollController.animateTo(
+      offset.clamp(0.0, _scrollController.position.maxScrollExtent),
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeOut,
+    );
   }
 
   String _getMonthName(int month) {
@@ -62,7 +78,7 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
   Future<void> showCustomCalendar(BuildContext context) async {
     final DateTime? picked = await showDialog<DateTime>(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.3),
+      barrierColor: Colors.black.withValues(alpha: 0.3),
       builder: (BuildContext context) {
         return Dialog(
           backgroundColor: Colors.transparent,
@@ -85,18 +101,21 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
         selectedDate = picked;
         focusedDate = picked;
       });
-      _scrollToCurrentHour();
+      _scrollToRelevantHour();
     }
   }
 
-  // Helper method to get tasks for a specific hour
-  List<Task> _getTasksForHour(List<Task> dayTasks, int hour) {
-  return dayTasks.where((task) {
-    // If task has no time, show it in the first hour (12:00 AM)
-    if (task.scheduletime == null) return hour == 9;
-    return task.scheduletime!.hour == hour;
-  }).toList();
-}
+  /// Tasks for one timeline row. Row 0 is "All day" (tasks with a date but
+  /// no time); rows 1-24 are the hours 00:00-23:00.
+  List<Task> _getTasksForRow(List<Task> dayTasks, int row) {
+    if (row == 0) {
+      return dayTasks.where((t) => t.scheduletime == null).toList();
+    }
+    final hour = row - 1;
+    return dayTasks
+        .where((t) => t.scheduletime != null && t.scheduletime!.hour == hour)
+        .toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -108,15 +127,7 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
         ? ref.watch(tasksForDateProvider(selectedDate!))
         : <Task>[];
 
-    print("DEBUG Schedule: Selected date: $selectedDate");
-    print("DEBUG Schedule: Day tasks found: ${dayTasks.length}");
-    for (var task in dayTasks) {
-      print(
-        "DEBUG Schedule: Task '${task.task}' - Date: ${task.scheduledate}, Time: ${task.scheduletime}",
-      );
-    }
     return Scaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -138,7 +149,7 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                       style: GoogleFonts.inter(
                         fontSize: 25,
                         fontWeight: FontWeight.w800,
-                        color: Colors.black87,
+                        color: AppTheme.getTextColor(context),
                       ),
                     ),
                     const SizedBox(width: 4),
@@ -147,7 +158,7 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                       style: GoogleFonts.inter(
                         fontSize: 25,
                         fontWeight: FontWeight.w800,
-                        color: Colors.black87,
+                        color: AppTheme.getTextColor(context),
                       ),
                     ),
                     GestureDetector(
@@ -179,7 +190,7 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                           style: GoogleFonts.inter(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
-                            color: Colors.black87,
+                            color: AppTheme.getTextColor(context),
                           ),
                         );
                       },
@@ -209,7 +220,9 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                       selectedDate = day;
                       focusedDate = focus;
                     });
-                    _scrollToCurrentHour();
+                    WidgetsBinding.instance.addPostFrameCallback(
+                      (_) => _scrollToRelevantHour(),
+                    );
                   },
                   headerVisible: false,
                   calendarStyle: CalendarStyle(
@@ -223,7 +236,7 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                       fontWeight: FontWeight.bold,
                     ),
                     todayTextStyle: GoogleFonts.inter(
-                      color: Colors.black87,
+                      color: AppTheme.getTextColor(context),
                       fontWeight: FontWeight.w500,
                     ),
                     selectedDecoration: const BoxDecoration(
@@ -235,7 +248,7 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                       fontWeight: FontWeight.w500,
                     ),
                     defaultTextStyle: GoogleFonts.inter(
-                      color: Colors.black87,
+                      color: AppTheme.getTextColor(context),
                       fontWeight: FontWeight.w500,
                     ),
                     outsideTextStyle: GoogleFonts.inter(
@@ -275,7 +288,7 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                           style: GoogleFonts.inter(
                             fontSize: 18,
                             fontWeight: FontWeight.w600,
-                            color: Colors.black87,
+                            color: AppTheme.getTextColor(context),
                           ),
                         ),
                         if (dayTasks.isNotEmpty)
@@ -303,41 +316,43 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                     Expanded(
                       child: ListView.builder(
                         controller: _scrollController,
-                        itemCount: 24,
+                        padding: const EdgeInsets.only(bottom: 100),
+                        itemCount: 25,
                         itemBuilder: (context, index) {
-                          final time = DateFormat('hh:00 a').format(
-                            DateTime(
-                              selectedDate!.year,
-                              selectedDate!.month,
-                              selectedDate!.day,
-                              index,
-                            ),
-                          );
+                          final time = index == 0
+                              ? "All day"
+                              : DateFormat('hh:00 a').format(
+                                  DateTime(
+                                    selectedDate!.year,
+                                    selectedDate!.month,
+                                    selectedDate!.day,
+                                    index - 1,
+                                  ),
+                                );
 
-                          // Get tasks for this hour
-                          final hourTasks = _getTasksForHour(dayTasks, index);
+                          final hourTasks = _getTasksForRow(dayTasks, index);
 
-                          // Check if this is the current hour
                           final isCurrentHour =
-                              isSameDay(selectedDate, now) && index == now.hour;
+                              isSameDay(selectedDate, now) &&
+                              index - 1 == now.hour;
 
                           return Container(
                             margin: const EdgeInsets.only(bottom: 12),
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
                               color: isCurrentHour
-                                  ? Colors.black87.withOpacity(0.05)
+                                  ? Colors.black87.withValues(alpha: 0.05)
                                   : Colors.white,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: isCurrentHour
-                                    ? Colors.black87.withOpacity(0.2)
+                                    ? Colors.black87.withValues(alpha: 0.2)
                                     : Colors.grey.shade200,
                                 width: 1,
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(0.04),
+                                  color: Colors.black.withValues(alpha: 0.04),
                                   blurRadius: 4,
                                   offset: const Offset(0, 1),
                                 ),
@@ -346,7 +361,7 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Container(
+                                SizedBox(
                                   width: 70,
                                   child: Text(
                                     time,
@@ -362,11 +377,13 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                                 const SizedBox(width: 16),
                                 Expanded(
                                   child: hourTasks.isEmpty
-                                      ? Container(
+                                      ? SizedBox(
                                           height: 40,
                                           child: Center(
                                             child: Text(
-                                              "No events scheduled",
+                                              index == 0
+                                                  ? "No all-day tasks"
+                                                  : "No events scheduled",
                                               style: GoogleFonts.inter(
                                                 fontSize: 14,
                                                 fontWeight: FontWeight.w400,
@@ -377,15 +394,9 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                                           ),
                                         )
                                       : Column(
-                                          children: hourTasks.map((task) {
-                                            final taskIndex = ref
-                                                .read(task_provider)
-                                                .indexOf(task);
-                                            return _buildScheduledTaskItem(
-                                              task,
-                                              taskIndex,
-                                            );
-                                          }).toList(),
+                                          children: hourTasks
+                                              .map(_buildScheduledTaskItem)
+                                              .toList(),
                                         ),
                                 ),
                               ],
@@ -425,7 +436,7 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                         style: GoogleFonts.inter(
                           fontSize: 20,
                           fontWeight: FontWeight.w600,
-                          color: Colors.black87,
+                          color: AppTheme.getTextColor(context),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -449,15 +460,15 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
     );
   }
 
-  Widget _buildScheduledTaskItem(Task task, int index) {
+  Widget _buildScheduledTaskItem(Task task) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: task.priority.color.withOpacity(0.05),
+        color: task.priority.color.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: task.priority.color.withOpacity(0.15),
+          color: task.priority.color.withValues(alpha: 0.15),
           width: 1,
         ),
       ),
@@ -477,7 +488,8 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
           // Checkbox
           GestureDetector(
             onTap: () =>
-                ref.read(task_provider.notifier).toggleTaskCompletion(index),
+                ref.read(taskProvider.notifier).toggleTaskCompletion(task.id),
+
             child: Container(
               width: 20,
               height: 20,
@@ -489,7 +501,7 @@ class _SChedulePageState extends ConsumerState<SChedulePage> {
                 border: Border.all(
                   color: task.isCompleted
                       ? task.priority.color
-                      : task.priority.color.withOpacity(0.5),
+                      : task.priority.color.withValues(alpha: 0.5),
                   width: 2,
                 ),
               ),
@@ -588,11 +600,11 @@ class _CustomCalendarDialogState extends State<CustomCalendarDialog> {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.getCardColor(context),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -649,14 +661,14 @@ class _CustomCalendarDialogState extends State<CustomCalendarDialog> {
                 titleTextStyle: GoogleFonts.inter(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: AppTheme.getTextColor(context),
                 ),
               ),
               daysOfWeekStyle: DaysOfWeekStyle(
                 weekdayStyle: GoogleFonts.inter(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: Colors.black87,
+                  color: AppTheme.getTextColor(context),
                 ),
                 weekendStyle: GoogleFonts.inter(
                   fontSize: 14,
@@ -672,7 +684,7 @@ class _CustomCalendarDialogState extends State<CustomCalendarDialog> {
                   shape: BoxShape.circle,
                 ),
                 todayTextStyle: GoogleFonts.inter(
-                  color: Colors.black87,
+                  color: AppTheme.getTextColor(context),
                   fontWeight: FontWeight.bold,
                 ),
 
@@ -688,7 +700,7 @@ class _CustomCalendarDialogState extends State<CustomCalendarDialog> {
 
                 // Default day styling
                 defaultTextStyle: GoogleFonts.inter(
-                  color: Colors.black87,
+                  color: AppTheme.getTextColor(context),
                   fontWeight: FontWeight.w500,
                 ),
 

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:planz/providers/theme_provider.dart';
+
 import 'package:google_fonts/google_fonts.dart';
 import 'package:planz/pages/voice_command_parser.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -55,7 +57,7 @@ class _VoiceTaskState extends ConsumerState<VoiceTask>
         onError: _onSpeechError,
         debugLogging: false,
       );
-      
+
       if (mounted) {
         setState(() {
           _isInitialized = available;
@@ -73,7 +75,7 @@ class _VoiceTaskState extends ConsumerState<VoiceTask>
 
   void _onSpeechStatus(String status) {
     if (!mounted) return;
-    
+
     setState(() {
       switch (status) {
         case 'listening':
@@ -101,7 +103,7 @@ class _VoiceTaskState extends ConsumerState<VoiceTask>
 
   void _onSpeechError(dynamic error) {
     if (!mounted) return;
-    
+
     setState(() {
       _status = 'Error occurred. Tap to try again.';
       _isListening = false;
@@ -139,9 +141,11 @@ class _VoiceTaskState extends ConsumerState<VoiceTask>
           },
           listenFor: const Duration(seconds: 10),
           pauseFor: const Duration(seconds: 3),
-          partialResults: false,
           localeId: 'en_US',
-          cancelOnError: true,
+          listenOptions: stt.SpeechListenOptions(
+            partialResults: false,
+            cancelOnError: true,
+          ),
         );
       } catch (e) {
         if (mounted) {
@@ -196,10 +200,9 @@ class _VoiceTaskState extends ConsumerState<VoiceTask>
 
   @override
   Widget build(BuildContext context) {
-   
+
     return SingleChildScrollView(
-      child: Container(
-        color: Colors.white,
+      child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
@@ -215,9 +218,9 @@ class _VoiceTaskState extends ConsumerState<VoiceTask>
                 ),
               ),
             ),
-            
+
             const SizedBox(height: 16),
-            
+
             // Status text
             Text(
               _status,
@@ -228,9 +231,9 @@ class _VoiceTaskState extends ConsumerState<VoiceTask>
               ),
               textAlign: TextAlign.center,
             ),
-            
+
             // Conditional content wrapped in RepaintBoundary
-            if (_text.isNotEmpty) 
+            if (_text.isNotEmpty)
               RepaintBoundary(
                 child: _VoiceResultSection(
                   text: _text,
@@ -288,7 +291,7 @@ class _VoiceMicButton extends StatelessWidget {
                           color: (isListening
                                   ? Colors.red.shade400
                                   : priorityColor)
-                              .withOpacity(0.3),
+                              .withValues(alpha: 0.3),
                           blurRadius: 20,
                           spreadRadius: 5,
                         ),
@@ -333,7 +336,7 @@ class _VoiceResultSection extends StatelessWidget {
     return Column(
       children: [
         const SizedBox(height: 16),
-        
+
         // Recognized text
         Container(
           padding: const EdgeInsets.all(12),
@@ -358,24 +361,24 @@ class _VoiceResultSection extends StatelessWidget {
                 text,
                 style: GoogleFonts.inter(
                   fontSize: 14,
-                  color: Colors.black87,
+                  color: AppTheme.getTextColor(context),
                 ),
               ),
             ],
           ),
         ),
-        
+
         if (parsedCommand != null) ...[
           const SizedBox(height: 12),
-          
+
           // Parsed command preview
           _CommandPreview(
             command: parsedCommand!,
             priorityColor: priorityColor,
           ),
-          
+
           const SizedBox(height: 12),
-          
+
           // Action buttons
           _ActionButtons(
             priorityColor: priorityColor,
@@ -403,10 +406,10 @@ class _CommandPreview extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: priorityColor.withOpacity(0.1),
+        color: priorityColor.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: priorityColor.withOpacity(0.3),
+          color: priorityColor.withValues(alpha: 0.3),
         ),
       ),
       child: Column(
@@ -436,7 +439,7 @@ class _CommandPreview extends StatelessWidget {
             style: GoogleFonts.inter(
               fontSize: 14,
               fontWeight: FontWeight.w500,
-              color: Colors.black87,
+              color: AppTheme.getTextColor(context),
             ),
           ),
           if (command.scheduledDate != null) ...[

@@ -4,7 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:planz/providers/task_notifier.dart';
-import 'package:planz/providers/task_provider.dart'; // Your updated provider
+import 'package:planz/providers/task_provider.dart';
+import 'package:planz/providers/theme_provider.dart';
 
 class ListPage extends ConsumerStatefulWidget {
   const ListPage({super.key});
@@ -13,11 +14,17 @@ class ListPage extends ConsumerStatefulWidget {
   ConsumerState<ListPage> createState() => _ListPageState();
 }
 
-class _ListPageState extends ConsumerState<ListPage> 
+class _ListPageState extends ConsumerState<ListPage>
     with TickerProviderStateMixin {
   late AnimationController _fadeController;
   String _selectedFilter = 'All';
-  final List<String> _filterOptions = ['All', 'Today', 'This Week', 'Overdue', 'Completed'];
+  final List<String> _filterOptions = [
+    'All',
+    'Today',
+    'This Week',
+    'Overdue',
+    'Completed',
+  ];
 
   @override
   void initState() {
@@ -35,34 +42,38 @@ class _ListPageState extends ConsumerState<ListPage>
     super.dispose();
   }
 
+  /// The day a task belongs to: its scheduled date, or the day it was
+  /// created when it has no schedule.
+  DateTime _taskDay(Task t) {
+    final d = t.scheduledate ?? t.createdAt;
+    return DateTime(d.year, d.month, d.day);
+  }
+
   List<Task> _getFilteredTasks(List<Task> tasks) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final startOfWeek = today.subtract(Duration(days: now.weekday - 1));
-    final endOfWeek = startOfWeek.add(const Duration(days: 6));
+    final startOfNextWeek = startOfWeek.add(const Duration(days: 7));
 
     switch (_selectedFilter) {
       case 'Today':
-        return tasks.where((t) =>
-          t.createdAt.year == today.year &&
-          t.createdAt.month == today.month &&
-          t.createdAt.day == today.day
-        ).toList();
+        return tasks
+            .where((t) => !t.isCompleted && _taskDay(t) == today)
+            .toList();
 
       case 'This Week':
-        return tasks.where((t) =>
-          t.createdAt.isAfter(startOfWeek.subtract(const Duration(days: 1))) &&
-          t.createdAt.isBefore(endOfWeek.add(const Duration(days: 1)))
-        ).toList();
+        return tasks.where((t) {
+          final day = _taskDay(t);
+          return !t.isCompleted &&
+              !day.isBefore(startOfWeek) &&
+              day.isBefore(startOfNextWeek);
+        }).toList();
 
       case 'Overdue':
-        // For now, return empty. You can implement overdue logic later
-        return [];
+        return tasks.where((t) => t.isOverdue(now)).toList();
 
       case 'Completed':
-        // Show deleted tasks as "completed"
-        final taskNotifier = ref.read(task_provider.notifier);
-        return taskNotifier.deletedTasks;
+        return tasks.where((t) => t.isCompleted).toList();
 
       default:
         return tasks;
@@ -70,7 +81,7 @@ class _ListPageState extends ConsumerState<ListPage>
   }
 
   Widget _buildFilterChips() {
-    return Container(
+    return SizedBox(
       height: 50,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
@@ -79,7 +90,7 @@ class _ListPageState extends ConsumerState<ListPage>
         itemBuilder: (context, index) {
           final filter = _filterOptions[index];
           final isSelected = filter == _selectedFilter;
-          
+
           return Padding(
             padding: EdgeInsets.only(
               right: index == _filterOptions.length - 1 ? 0 : 12,
@@ -91,7 +102,9 @@ class _ListPageState extends ConsumerState<ListPage>
                 style: GoogleFonts.inter(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: isSelected ? Colors.white : Colors.grey.shade600,
+                  color: isSelected
+                      ? AppTheme.getCardColor(context)
+                      : AppTheme.getSecondaryTextColor(context),
                 ),
               ),
               onSelected: (selected) {
@@ -102,11 +115,12 @@ class _ListPageState extends ConsumerState<ListPage>
                   HapticFeedback.lightImpact();
                 }
               },
-              backgroundColor: Colors.white,
-              selectedColor: Colors.black87,
-              checkmarkColor: Colors.white,
+              backgroundColor: AppTheme.getCardColor(context),
+              selectedColor: AppTheme.getTextColor(context),
               side: BorderSide(
-                color: isSelected ? Colors.black87 : Colors.grey.shade200,
+                color: isSelected
+                    ? AppTheme.getTextColor(context)
+                    : AppTheme.getBorderColor(context),
                 width: 1,
               ),
               shape: RoundedRectangleBorder(
@@ -122,20 +136,18 @@ class _ListPageState extends ConsumerState<ListPage>
     );
   }
 
-  Widget _buildTaskStats(List<Task> activeTasks, List<Task> deletedTasks) {
+  Widget _buildTaskStats(List<Task> activeTasks) {
+    final completed = activeTasks.where((t) => t.isCompleted).length;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.getCardColor(context),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.grey.shade200,
-          width: 1,
-        ),
+        border: Border.all(color: AppTheme.getBorderColor(context), width: 1),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 4,
             offset: const Offset(0, 1),
           ),
@@ -148,11 +160,11 @@ class _ListPageState extends ConsumerState<ListPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "${activeTasks.length + deletedTasks.length}",
+                  "${activeTasks.length}",
                   style: GoogleFonts.inter(
                     fontSize: 24,
                     fontWeight: FontWeight.w800,
-                    color: Colors.black87,
+                    color: AppTheme.getTextColor(context),
                   ),
                 ),
                 Text(
@@ -166,17 +178,13 @@ class _ListPageState extends ConsumerState<ListPage>
               ],
             ),
           ),
-          Container(
-            width: 1,
-            height: 40,
-            color: Colors.grey.shade200,
-          ),
+          Container(width: 1, height: 40, color: Colors.grey.shade200),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Text(
-                  "${deletedTasks.length}",
+                  "$completed",
                   style: GoogleFonts.inter(
                     fontSize: 24,
                     fontWeight: FontWeight.w800,
@@ -194,21 +202,17 @@ class _ListPageState extends ConsumerState<ListPage>
               ],
             ),
           ),
-          Container(
-            width: 1,
-            height: 40,
-            color: Colors.grey.shade200,
-          ),
+          Container(width: 1, height: 40, color: Colors.grey.shade200),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  "${activeTasks.length}",
+                  "${activeTasks.length - completed}",
                   style: GoogleFonts.inter(
                     fontSize: 24,
                     fontWeight: FontWeight.w800,
-                    color: Colors.black87,
+                    color: AppTheme.getTextColor(context),
                   ),
                 ),
                 Text(
@@ -253,14 +257,14 @@ class _ListPageState extends ConsumerState<ListPage>
               style: GoogleFonts.inter(
                 fontSize: 20,
                 fontWeight: FontWeight.w600,
-                color: Colors.black87,
+                color: AppTheme.getTextColor(context),
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              _selectedFilter == 'All' 
-                ? "Create your first task to get started"
-                : "No tasks match the current filter",
+              _selectedFilter == 'All'
+                  ? "Create your first task to get started"
+                  : "No tasks match the current filter",
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(
                 fontSize: 16,
@@ -277,16 +281,13 @@ class _ListPageState extends ConsumerState<ListPage>
 
   @override
   Widget build(BuildContext context) {
-    // Get tasks from provider
-    final taskNotifier = ref.watch(task_provider.notifier);
-    final activeTasks = taskNotifier.activeTasks;
-    final deletedTasks = taskNotifier.deletedTasks;
-    
+    final taskNotifier = ref.read(taskProvider.notifier);
+    final activeTasks = ref.watch(tasksSortedByPriorityProvider);
+
     // Filter based on selection
     final filteredTasks = _getFilteredTasks(activeTasks);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFAFAFA),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -306,7 +307,7 @@ class _ListPageState extends ConsumerState<ListPage>
                   style: GoogleFonts.inter(
                     fontSize: 28,
                     fontWeight: FontWeight.w800,
-                    color: Colors.black87,
+                    color: AppTheme.getTextColor(context),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -327,8 +328,7 @@ class _ListPageState extends ConsumerState<ListPage>
           _buildFilterChips(),
 
           // Task stats
-          if (activeTasks.isNotEmpty || deletedTasks.isNotEmpty) 
-            _buildTaskStats(activeTasks, deletedTasks),
+          if (activeTasks.isNotEmpty) _buildTaskStats(activeTasks),
 
           // Task list
           Expanded(
@@ -338,23 +338,26 @@ class _ListPageState extends ConsumerState<ListPage>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 16,
+                        ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              _selectedFilter == 'All' 
-                                ? "All Tasks (${filteredTasks.length})"
-                                : "$_selectedFilter (${filteredTasks.length})",
+                              _selectedFilter == 'All'
+                                  ? "All Tasks (${filteredTasks.length})"
+                                  : "$_selectedFilter (${filteredTasks.length})",
                               style: GoogleFonts.inter(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w600,
-                                color: Colors.black87,
+                                color: AppTheme.getTextColor(context),
                               ),
                             ),
-                            if (filteredTasks.length > 1)
+                            if (filteredTasks.isNotEmpty)
                               Text(
-                                "Swipe left to delete",
+                                "Tap to complete · swipe to delete",
                                 style: GoogleFonts.inter(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500,
@@ -368,17 +371,15 @@ class _ListPageState extends ConsumerState<ListPage>
                         child: FadeTransition(
                           opacity: _fadeController,
                           child: ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 24),
                             itemCount: filteredTasks.length,
+                            padding: const EdgeInsets.fromLTRB(24, 0, 24, 100),
                             itemBuilder: (context, index) {
                               final task = filteredTasks[index];
-                              final allTasks = ref.read(task_provider);
-                              final originalIndex = allTasks.indexOf(task);
-                              
+
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: Dismissible(
-                                  key: ValueKey('${task.task}_${task.desc}_$originalIndex'),
+                                  key: ValueKey(task.id),
                                   direction: DismissDirection.endToStart,
                                   background: Container(
                                     decoration: BoxDecoration(
@@ -393,34 +394,15 @@ class _ListPageState extends ConsumerState<ListPage>
                                       size: 24,
                                     ),
                                   ),
-                                  confirmDismiss: (direction) async {
+                                  onDismissed: (direction) {
                                     HapticFeedback.mediumImpact();
-                                    
-                                    if (_selectedFilter == 'Completed') {
-                                      // Permanently delete if in completed view
-                                      taskNotifier.permanentlyDeleteTask(originalIndex);
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            "Task permanently deleted",
-                                            style: GoogleFonts.inter(
-                                              fontWeight: FontWeight.w500,
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                          backgroundColor: Colors.red.shade600,
-                                          behavior: SnackBarBehavior.floating,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(8),
-                                          ),
-                                          margin: const EdgeInsets.all(16),
-                                          duration: const Duration(seconds: 2),
-                                        ),
-                                      );
-                                    } else {
-                                      // Soft delete for active tasks
-                                      taskNotifier.deleteTask(originalIndex);
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                    taskNotifier.deleteTask(task.id);
+                                    final messenger = ScaffoldMessenger.of(
+                                      context,
+                                    );
+                                    messenger.hideCurrentSnackBar();
+                                    {
+                                      messenger.showSnackBar(
                                         SnackBar(
                                           content: Row(
                                             children: [
@@ -441,8 +423,11 @@ class _ListPageState extends ConsumerState<ListPage>
                                               ),
                                               TextButton(
                                                 onPressed: () {
-                                                  taskNotifier.restoreTask(originalIndex);
-                                                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                                  taskNotifier.restoreTask(
+                                                    task.id,
+                                                  );
+                                                  messenger
+                                                      .hideCurrentSnackBar();
                                                 },
                                                 child: Text(
                                                   "UNDO",
@@ -457,22 +442,24 @@ class _ListPageState extends ConsumerState<ListPage>
                                           backgroundColor: Colors.red.shade600,
                                           behavior: SnackBarBehavior.floating,
                                           shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(8),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
                                           ),
                                           margin: const EdgeInsets.all(16),
                                           duration: const Duration(seconds: 4),
                                         ),
                                       );
                                     }
-                                    
-                                    return true;
                                   },
-                                  child: TaskCard(
-                                    title: task.task,
-                                    description: task.desc,
-                                    index: originalIndex,
-                                    dueDate: null, // Add when you implement dates
-                                    isCompleted: task.deletedAt != null, // Show as completed if deleted
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      HapticFeedback.lightImpact();
+                                      taskNotifier.toggleTaskCompletion(
+                                        task.id,
+                                      );
+                                    },
+                                    child: TaskCard(task: task),
                                   ),
                                 ),
                               );
@@ -490,35 +477,41 @@ class _ListPageState extends ConsumerState<ListPage>
 }
 
 class TaskCard extends StatelessWidget {
-  final String title;
-  final String description;
-  final int index;
-  final DateTime? dueDate;
-  final bool isCompleted;
+  final Task task;
 
-  const TaskCard({
-    super.key,
-    required this.title,
-    required this.description,
-    required this.index,
-    this.dueDate,
-    this.isCompleted = false,
-  });
+  const TaskCard({super.key, required this.task});
+
+  String _createdAgo() {
+    final diff = DateTime.now().difference(task.createdAt);
+    if (diff.inMinutes < 1) return "Created just now";
+    if (diff.inHours < 1) return "Created ${diff.inMinutes}m ago";
+    if (diff.inDays < 1) return "Created ${diff.inHours}h ago";
+    if (diff.inDays < 7) return "Created ${diff.inDays}d ago";
+    return "Created ${DateFormat('MMM d').format(task.createdAt)}";
+  }
 
   @override
   Widget build(BuildContext context) {
+    final isCompleted = task.isCompleted;
+    final overdue = task.isOverdue();
+    final textColor = AppTheme.getTextColor(context);
+    final muted = AppTheme.getSecondaryTextColor(context);
+
+    final (statusLabel, statusColor) = isCompleted
+        ? ("Completed", Colors.green)
+        : overdue
+        ? ("Overdue", Colors.red)
+        : ("Pending", Colors.orange.shade700);
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppTheme.getCardColor(context),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.grey.shade200,
-          width: 1,
-        ),
+        border: Border.all(color: AppTheme.getBorderColor(context), width: 1),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 4,
             offset: const Offset(0, 1),
           ),
@@ -528,96 +521,116 @@ class TaskCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
+                      task.task,
                       style: GoogleFonts.inter(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
-                        color: isCompleted ? Colors.grey.shade600 : Colors.black87,
-                        decoration: isCompleted ? TextDecoration.lineThrough : null,
+                        color: isCompleted ? muted : textColor,
+                        decoration: isCompleted
+                            ? TextDecoration.lineThrough
+                            : null,
                       ),
                     ),
-                    if (description.isNotEmpty) ...[
+                    if (task.desc.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Text(
-                        description,
+                        task.desc,
                         style: GoogleFonts.inter(
                           fontSize: 14,
-                          fontWeight: FontWeight.w400,
-                          color: isCompleted ? Colors.grey.shade400 : Colors.grey.shade600,
-                          decoration: isCompleted ? TextDecoration.lineThrough : null,
+                          color: isCompleted ? Colors.grey.shade400 : muted,
+                          decoration: isCompleted
+                              ? TextDecoration.lineThrough
+                              : null,
                         ),
                       ),
                     ],
                   ],
                 ),
               ),
+              // Priority badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
-                  color: Colors.black87.withOpacity(0.1),
+                  color: task.priority.color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Text(
-                  "#${index + 1}",
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black87,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      task.priority.icon,
+                      size: 14,
+                      color: task.priority.color,
+                    ),
+                    const SizedBox(width: 2),
+                    Text(
+                      task.priority.label,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: task.priority.color,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          
-          if (dueDate != null) ...[
+          if (task.scheduledate != null) ...[
             const SizedBox(height: 12),
             Row(
               children: [
                 Icon(
                   Icons.schedule_outlined,
                   size: 16,
-                  color: Colors.grey.shade600,
+                  color: overdue ? Colors.red : muted,
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  DateFormat('MMM dd, yyyy').format(dueDate!),
+                  DateFormat('MMM dd, yyyy').format(task.scheduledate!) +
+                      (task.scheduletime != null
+                          ? ' · ${task.scheduletime!.format(context)}'
+                          : ''),
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    color: Colors.grey.shade600,
+                    color: overdue ? Colors.red : muted,
                   ),
                 ),
               ],
             ),
           ],
-          
           const SizedBox(height: 12),
           Row(
             children: [
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isCompleted ? Colors.green.withOpacity(0.1) : Colors.orange.withOpacity(0.1),
+                  color: statusColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  isCompleted ? "Completed" : "Pending",
+                  statusLabel,
                   style: GoogleFonts.inter(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: isCompleted ? Colors.green : Colors.orange.shade700,
+                    color: statusColor,
                   ),
                 ),
               ),
               const Spacer(),
               Text(
-                "Created recently", // You can make this dynamic later with task.createdAt
+                _createdAgo(),
                 style: GoogleFonts.inter(
                   fontSize: 11,
                   fontWeight: FontWeight.w500,

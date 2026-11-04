@@ -5,32 +5,24 @@ import 'package:flutter/services.dart';
 
 import 'package:planz/providers/task_notifier.dart' show TaskNotifier, Task;
 import 'package:planz/providers/task_provider.dart';
+import 'package:planz/providers/theme_provider.dart';
 
 class DeletedTasksSheet extends ConsumerWidget {
   const DeletedTasksSheet({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final allTasks = ref.watch(task_provider).toList();
-    final taskNotifier = ref.read(task_provider.notifier);
-
-    // Filter inside build so it updates when `allTasks` changes
-    final todaysDeletedTasks = allTasks.where((task) {
-      if (task.deletedAt == null) return false;
-      final today = DateTime.now();
-      final deletedDate = task.deletedAt!;
-      return deletedDate.year == today.year &&
-          deletedDate.month == today.month &&
-          deletedDate.day == today.day;
-    }).toList();
+    // Every task in the trash, most recently deleted first.
+    final deletedTasks = ref.watch(deletedTasksProvider);
+    final taskNotifier = ref.read(taskProvider.notifier);
 
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.8,
       ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      decoration: BoxDecoration(
+        color: AppTheme.getCardColor(context),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -74,11 +66,13 @@ class DeletedTasksSheet extends ConsumerWidget {
                         style: GoogleFonts.inter(
                           fontSize: 20,
                           fontWeight: FontWeight.w600,
-                          color: Colors.black87,
+                          color: AppTheme.getTextColor(context),
                         ),
                       ),
                       Text(
-                        "${todaysDeletedTasks.length} tasks deleted today",
+                        deletedTasks.length == 1
+                            ? "1 task in trash"
+                            : "${deletedTasks.length} tasks in trash",
                         style: GoogleFonts.inter(
                           fontSize: 14,
                           color: Colors.grey.shade500,
@@ -88,23 +82,19 @@ class DeletedTasksSheet extends ConsumerWidget {
                   ),
                 ),
                 TextButton(
-                  onPressed: todaysDeletedTasks.isEmpty
+                  onPressed: deletedTasks.isEmpty
                       ? null
-                      : () {
-                          _showClearAllDialog(
-                            context,
-                            ref,
-                            allTasks,
-                            taskNotifier,
-                            todaysDeletedTasks,
-                          );
-                        },
+                      : () => _showClearAllDialog(
+                          context,
+                          taskNotifier,
+                          deletedTasks.length,
+                        ),
                   child: Text(
                     "Clear All",
                     style: GoogleFonts.inter(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
-                      color: todaysDeletedTasks.isEmpty
+                      color: deletedTasks.isEmpty
                           ? Colors.grey.shade400
                           : Colors.red,
                     ),
@@ -116,23 +106,17 @@ class DeletedTasksSheet extends ConsumerWidget {
 
           // Content
           Flexible(
-            child: todaysDeletedTasks.isEmpty
-                ? _buildEmptyState()
+            child: deletedTasks.isEmpty
+                ? _buildEmptyState(context)
                 : ListView.builder(
                     shrinkWrap: true,
                     padding: const EdgeInsets.symmetric(horizontal: 24),
-                    itemCount: todaysDeletedTasks.length,
-                    itemBuilder: (context, index) {
-                      final task = todaysDeletedTasks[index];
-                      final originalIndex = allTasks.indexOf(task);
-                      return _buildDeletedTaskItem(
-                        context,
-                        ref,
-                        task,
-                        originalIndex,
-                        taskNotifier,
-                      );
-                    },
+                    itemCount: deletedTasks.length,
+                    itemBuilder: (context, index) => _buildDeletedTaskItem(
+                      context,
+                      deletedTasks[index],
+                      taskNotifier,
+                    ),
                   ),
           ),
 
@@ -145,9 +129,7 @@ class DeletedTasksSheet extends ConsumerWidget {
 
   Widget _buildDeletedTaskItem(
     BuildContext context,
-    WidgetRef ref,
     Task task,
-    int originalIndex,
     TaskNotifier taskNotifier,
   ) {
     final timeAgo = _getTimeAgo(task.deletedAt!);
@@ -156,9 +138,9 @@ class DeletedTasksSheet extends ConsumerWidget {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
+        color: AppTheme.getBackgroundColor(context),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200, width: 1),
+        border: Border.all(color: AppTheme.getBorderColor(context), width: 1),
       ),
       child: Row(
         children: [
@@ -207,7 +189,7 @@ class DeletedTasksSheet extends ConsumerWidget {
               GestureDetector(
                 onTap: () {
                   HapticFeedback.lightImpact();
-                  taskNotifier.restoreTask(originalIndex);
+                  taskNotifier.restoreTask(task.id);
 
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -249,7 +231,7 @@ class DeletedTasksSheet extends ConsumerWidget {
                 onTap: () {
                   _showDeleteConfirmDialog(context, task.task, () {
                     HapticFeedback.mediumImpact();
-                    taskNotifier.permanentlyDeleteTask(originalIndex);
+                    taskNotifier.permanentlyDeleteTask(task.id);
 
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -291,7 +273,7 @@ class DeletedTasksSheet extends ConsumerWidget {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(BuildContext context) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -302,7 +284,7 @@ class DeletedTasksSheet extends ConsumerWidget {
               width: 80,
               height: 80,
               decoration: BoxDecoration(
-                color: Colors.grey.shade100,
+                color: AppTheme.getBorderColor(context),
                 shape: BoxShape.circle,
               ),
               child: Icon(
@@ -313,7 +295,7 @@ class DeletedTasksSheet extends ConsumerWidget {
             ),
             const SizedBox(height: 24),
             Text(
-              "No deleted tasks",
+              "Trash is empty",
               style: GoogleFonts.inter(
                 fontSize: 18,
                 fontWeight: FontWeight.w500,
@@ -349,178 +331,181 @@ class DeletedTasksSheet extends ConsumerWidget {
     }
   }
 
- void _showDeleteConfirmDialog(
-  BuildContext context,
-  String taskTitle,
-  VoidCallback onConfirm,
-) {
-  showDialog(
-    context: context,
-    barrierColor: Colors.black.withOpacity(0.3),
-    builder: (context) => Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-      child: Container(
-        padding: const EdgeInsets.all(32),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 16,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Icon
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.delete_forever,
-                size: 32,
-                color: Colors.red.shade600,
-              ),
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // Title
-            Text(
-              "Delete Forever?",
-              textAlign: TextAlign.center,
-              style: GoogleFonts.inter(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
-              ),
-            ),
-            
-            const SizedBox(height: 12),
-            
-            // Content with task title
-            RichText(
-              textAlign: TextAlign.center,
-              text: TextSpan(
-                style: GoogleFonts.inter(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w400,
-                  color: Colors.grey.shade600,
-                  height: 1.4,
-                ),
-                children: [
-                  const TextSpan(text: "This will permanently delete "),
-                  TextSpan(
-                    text: "\"$taskTitle\"",
-                    style: GoogleFonts.inter(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const TextSpan(text: ". This action cannot be undone."),
-                ],
-              ),
-            ),
-            
-            const SizedBox(height: 32),
-            
-            // Action buttons
-            Row(
-              children: [
-                // Cancel button
-                Expanded(
-                  child: SizedBox(
-                    height: 48,
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: Colors.grey.shade300, width: 1),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        backgroundColor: Colors.transparent,
-                      ),
-                      child: Text(
-                        'Cancel',
-                        style: GoogleFonts.inter(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                
-                const SizedBox(width: 12),
-                
-                // Delete button
-                Expanded(
-                  child: SizedBox(
-                    height: 48,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        onConfirm();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.shade600,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: Text(
-                        'Delete',
-                        style: GoogleFonts.inter(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-
-  }
-
-  void _showClearAllDialog(
+  void _showDeleteConfirmDialog(
     BuildContext context,
-    WidgetRef ref,
-    List<Task> allTasks,
-    TaskNotifier taskNotifier,
-    List<Task> todaysDeletedTasks,
+    String taskTitle,
+    VoidCallback onConfirm,
   ) {
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.3),
+      barrierColor: Colors.black.withValues(alpha: 0.3),
       builder: (context) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
         child: Container(
           padding: const EdgeInsets.all(32),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppTheme.getCardColor(context),
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.08),
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Icon
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.delete_forever,
+                  size: 32,
+                  color: Colors.red.shade600,
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Title
+              Text(
+                "Delete Forever?",
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.getTextColor(context),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Content with task title
+              RichText(
+                textAlign: TextAlign.center,
+                text: TextSpan(
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w400,
+                    color: Colors.grey.shade600,
+                    height: 1.4,
+                  ),
+                  children: [
+                    const TextSpan(text: "This will permanently delete "),
+                    TextSpan(
+                      text: "\"$taskTitle\"",
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: AppTheme.getTextColor(context),
+                      ),
+                    ),
+                    const TextSpan(text: ". This action cannot be undone."),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 32),
+
+              // Action buttons
+              Row(
+                children: [
+                  // Cancel button
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(
+                            color: Colors.grey.shade300,
+                            width: 1,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          backgroundColor: Colors.transparent,
+                        ),
+                        child: Text(
+                          'Cancel',
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  // Delete button
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          onConfirm();
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red.shade600,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: Text(
+                          'Delete',
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// [sheetContext] is the trash sheet's context. It is used (instead of the
+  /// dialog's own context, which is gone once the dialog pops) to close the
+  /// sheet and show the confirmation snackbar.
+  void _showClearAllDialog(
+    BuildContext sheetContext,
+    TaskNotifier taskNotifier,
+    int count,
+  ) {
+    showDialog(
+      context: sheetContext,
+      barrierColor: Colors.black.withValues(alpha: 0.3),
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+        child: Container(
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: AppTheme.getCardColor(context),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
                 blurRadius: 16,
                 offset: const Offset(0, 4),
               ),
@@ -553,7 +538,7 @@ class DeletedTasksSheet extends ConsumerWidget {
                 style: GoogleFonts.inter(
                   fontSize: 20,
                   fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+                  color: AppTheme.getTextColor(context),
                 ),
               ),
 
@@ -561,7 +546,7 @@ class DeletedTasksSheet extends ConsumerWidget {
 
               // Content
               Text(
-                "This will permanently delete all ${todaysDeletedTasks.length} deleted tasks from today. This action cannot be undone.",
+                "This will permanently delete all $count tasks in the trash. This action cannot be undone.",
                 textAlign: TextAlign.center,
                 style: GoogleFonts.inter(
                   fontSize: 16,
@@ -612,26 +597,12 @@ class DeletedTasksSheet extends ConsumerWidget {
                       height: 48,
                       child: ElevatedButton(
                         onPressed: () {
-                          Navigator.pop(context);
+                          Navigator.pop(context); // close the dialog
+                          taskNotifier.emptyTrash();
 
-                          // Remove all today's deleted tasks permanently
-                          final indicesToRemove = <int>[];
-                          for (final task in todaysDeletedTasks) {
-                            final index = allTasks.indexOf(task);
-                            if (index != -1) {
-                              indicesToRemove.add(index);
-                            }
-                          }
-
-                          // Sort in descending order and remove
-                          indicesToRemove.sort((a, b) => b.compareTo(a));
-                          for (final index in indicesToRemove) {
-                            taskNotifier.permanentlyDeleteTask(index);
-                          }
-
-                          Navigator.pop(context); // Close the sheet
-
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          final messenger = ScaffoldMessenger.of(sheetContext);
+                          Navigator.pop(sheetContext); // close the sheet
+                          messenger.showSnackBar(
                             SnackBar(
                               content: Row(
                                 children: [
@@ -639,7 +610,9 @@ class DeletedTasksSheet extends ConsumerWidget {
                                     width: 20,
                                     height: 20,
                                     decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.2),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.2,
+                                      ),
                                       shape: BoxShape.circle,
                                     ),
                                     child: Icon(
